@@ -14,7 +14,12 @@ import com.github.tomakehurst.wiremock.common.Slf4jNotifier;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.github.tomakehurst.wiremock.matching.RequestPatternBuilder;
 import java.io.*;
-import java.net.*;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
+import java.net.ProxySelector;
+import java.net.URL;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
@@ -57,8 +62,10 @@ public class JdkClientTest {
         API_URL = String.format("%s%s", BASE_URL, BASE_PATH);
 
         URL proxyUrl = new URL(wiremockProxy.getRuntimeInfo().getHttpBaseUrl());
-        httpClientWithProxy = new JdkClient(
-                new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyUrl.getHost(), wiremockProxy.getPort())));
+        HttpClient proxyHttpClient = HttpClient.newBuilder()
+                .proxy(ProxySelector.of(new InetSocketAddress(proxyUrl.getHost(), wiremockProxy.getPort())))
+                .build();
+        httpClientWithProxy = new JdkClient(proxyHttpClient);
 
         SINGLE_REQUEST_HEADER = new HashMap<>();
         SINGLE_REQUEST_HEADER.put("header1", "value1");
@@ -212,7 +219,8 @@ public class JdkClientTest {
         HttpResponse<String> response = httpClientWithProxy.get(API_URL, Collections.emptyMap());
 
         wiremockProxy.verify(getRequestedFor(urlEqualTo(BASE_PATH)));
-        validateGetRequest(response);
+        assertThat(response.getStatusCode(), is(equalTo(HttpURLConnection.HTTP_OK)));
+        assertThat(response.getBody(), is(equalTo(SAMPLE_RESPONSE_BODY)));
         assertThat(response.isError(), is(false));
     }
 
