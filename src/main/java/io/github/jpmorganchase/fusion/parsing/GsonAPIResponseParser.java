@@ -180,9 +180,9 @@ public class GsonAPIResponseParser implements APIResponseParser {
         Map<String, Object> responseMap = getMapFromJsonResponse(json);
 
         Object resources = responseMap.get(resourceAttribute);
-        if (resources instanceof List) {
+        if (resources instanceof List<?> rawList) {
             @SuppressWarnings("unchecked") // Output of GSON parsing will always be in this format
-            List<Map<String, Object>> resourceList = (List<Map<String, Object>>) resources;
+            List<Map<String, Object>> resourceList = (List<Map<String, Object>>) rawList;
 
             return parseResourcesByAttribute(resourceList, identifierAttribute);
         } else {
