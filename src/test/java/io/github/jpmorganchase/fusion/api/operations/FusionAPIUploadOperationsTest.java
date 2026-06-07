@@ -461,13 +461,6 @@ class FusionAPIUploadOperationsTest {
                 "dataset-token",
                 copyOfHeaders(),
                 404);
-        givenCallToClientToUploadPart(
-                4,
-                "G6RtAEGJqAKL1PaJNRRCgT2AXceURap43HJ4oaWXYdo=",
-                "some-operation-id-aa",
-                "my-token",
-                "dataset-token",
-                copyOfHeaders());
         givenCallToClientToAbortMultipartUpload("some-operation-id-aa", "my-token", "dataset-token", copyOfHeaders());
 
         // When
