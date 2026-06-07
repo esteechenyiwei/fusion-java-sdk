@@ -11,6 +11,10 @@ Fusion by J.P. Morgan is a cloud-native data platform for institutional investor
 
 For more information, please visit [fusion.jpmorgan.com](https://fusion.jpmorgan.com/)
 
+## Prerequisites
+
+- Java 17 or later
+
 ## Usage
 
 ### Acquiring
