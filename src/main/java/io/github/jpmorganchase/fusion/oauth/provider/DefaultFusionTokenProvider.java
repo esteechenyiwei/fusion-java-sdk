@@ -8,9 +8,11 @@ import io.github.jpmorganchase.fusion.http.Client;
 import io.github.jpmorganchase.fusion.http.JdkClient;
 import io.github.jpmorganchase.fusion.oauth.credential.Credentials;
 import io.github.jpmorganchase.fusion.oauth.credential.OAuthSecretBasedCredentials;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import lombok.Builder;
 
 @Builder
@@ -76,7 +78,10 @@ public class DefaultFusionTokenProvider implements FusionTokenProvider {
             if (null == sessionTokenProvider && null == credentials) {
                 Gson gson = new GsonBuilder().create();
                 try {
-                    FileReader fileReader = new FileReader(configuration.getCredentialsPath(), StandardCharsets.UTF_8);
+                    // Java 8 doesn't allow specification of the charset if we use a FileReader
+                    InputStreamReader fileReader = new InputStreamReader(
+                            Files.newInputStream(Paths.get(configuration.getCredentialsPath())),
+                            StandardCharsets.UTF_8);
                     credentials = gson.fromJson(fileReader, OAuthSecretBasedCredentials.class);
                     fileReader.close();
                 } catch (IOException e) {

@@ -279,8 +279,8 @@ public class FusionAPIDownloadOperations implements APIDownloadOperations {
     }
 
     private FusionException handleExceptionThrownWhenAttemptingToGetParts(Exception ex) {
-        if (ex.getCause() instanceof FusionException fusionEx) {
-            return fusionEx;
+        if (ex.getCause() instanceof FusionException) {
+            return (FusionException) ex.getCause();
         }
 
         Throwable cause = (null != ex.getCause() ? ex.getCause() : ex);

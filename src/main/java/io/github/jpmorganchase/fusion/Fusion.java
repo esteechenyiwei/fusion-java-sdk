@@ -153,8 +153,8 @@ public class Fusion {
      */
     // TODO: The implementation of this needs some thought. This way makes it difficult to test in isolation
     public void updateBearerToken(String token) {
-        if (this.api instanceof FusionAPIManager manager) {
-            manager.updateBearerToken(token);
+        if (this.api instanceof FusionAPIManager) {
+            ((FusionAPIManager) this.api).updateBearerToken(token);
         } else {
             throw new FusionException("Bearer token update not supported");
         }
@@ -966,8 +966,8 @@ public class Fusion {
                     ? datasetMetadata.getVarArgs().get("deliveryChannel")
                     : null;
 
-            if (deliveryChannel instanceof Iterable<?> channels) {
-                for (Object channel : channels) {
+            if (deliveryChannel instanceof Iterable<?>) {
+                for (Object channel : (Iterable<?>) deliveryChannel) {
                     if (Objects.nonNull(channel) && "glue".equalsIgnoreCase(channel.toString())) return true;
                 }
             }
