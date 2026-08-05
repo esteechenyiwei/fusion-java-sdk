@@ -335,8 +335,8 @@ public class FusionAPIUploadOperations implements APIUploadOperations {
     }
 
     private FusionException handleExceptionThrownWhenAttemptingToUploadParts(Exception ex) {
-        if (ex.getCause() instanceof FusionException) {
-            return (FusionException) ex.getCause();
+        if (ex.getCause() instanceof FusionException cause) {
+            return cause;
         }
 
         Throwable cause = (null != ex.getCause() ? ex.getCause() : ex);

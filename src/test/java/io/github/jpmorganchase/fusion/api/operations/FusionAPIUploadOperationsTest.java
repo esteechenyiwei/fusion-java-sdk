@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @SuppressWarnings("SameParameterValue")
@@ -461,7 +462,7 @@ class FusionAPIUploadOperationsTest {
                 "dataset-token",
                 copyOfHeaders(),
                 404);
-        givenCallToClientToUploadPart(
+        givenCallToClientToUploadPartThatMayNotBeRequested(
                 4,
                 "G6RtAEGJqAKL1PaJNRRCgT2AXceURap43HJ4oaWXYdo=",
                 "some-operation-id-aa",
@@ -824,6 +825,31 @@ class FusionAPIUploadOperationsTest {
             String authToken,
             String fusionToken,
             Map<String, String> headers) {
+        givenCallToClientToUploadPart(partNo, digest, operationId, authToken, fusionToken, headers, false);
+    }
+
+    /**
+     * Parts are uploaded in parallel, so when an earlier part fails the remaining parts may or may not be
+     * dispatched before the transfer is aborted. Stubs for those parts must be lenient.
+     */
+    private void givenCallToClientToUploadPartThatMayNotBeRequested(
+            int partNo,
+            String digest,
+            String operationId,
+            String authToken,
+            String fusionToken,
+            Map<String, String> headers) {
+        givenCallToClientToUploadPart(partNo, digest, operationId, authToken, fusionToken, headers, true);
+    }
+
+    private void givenCallToClientToUploadPart(
+            int partNo,
+            String digest,
+            String operationId,
+            String authToken,
+            String fusionToken,
+            Map<String, String> headers,
+            boolean lenient) {
 
         String path = String.format("/operations/upload?operationId=%s&partNumber=%d", operationId, partNo);
 
@@ -842,11 +868,16 @@ class FusionAPIUploadOperationsTest {
 
         String body = new GsonBuilder().create().toJson(uploadedPart);
 
-        when(client.put(eq(apiPath + path), eq(headers), isNotNull()))
-                .thenReturn(HttpResponse.<String>builder()
-                        .body(body)
-                        .statusCode(200)
-                        .build());
+        HttpResponse<String> response =
+                HttpResponse.<String>builder().body(body).statusCode(200).build();
+
+        if (lenient) {
+            Mockito.lenient()
+                    .when(client.put(eq(apiPath + path), eq(headers), isNotNull()))
+                    .thenReturn(response);
+        } else {
+            when(client.put(eq(apiPath + path), eq(headers), isNotNull())).thenReturn(response);
+        }
 
         uploadedParts.add(uploadedPart);
     }

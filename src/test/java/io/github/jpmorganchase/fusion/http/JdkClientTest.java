@@ -35,7 +35,10 @@ public class JdkClientTest {
 
     @RegisterExtension
     static WireMockExtension wiremockProxy = WireMockExtension.newInstance()
-            .options(wireMockConfig().dynamicPort().notifier(new Slf4jNotifier(true)))
+            .options(wireMockConfig()
+                    .dynamicPort()
+                    .notifier(new Slf4jNotifier(true))
+                    .preserveUserAgentProxyHeader(true))
             .build();
 
     private static final Client httpClient = JdkClient.builder().noProxy().build();
@@ -57,8 +60,10 @@ public class JdkClientTest {
         API_URL = String.format("%s%s", BASE_URL, BASE_PATH);
 
         URL proxyUrl = new URL(wiremockProxy.getRuntimeInfo().getHttpBaseUrl());
-        httpClientWithProxy = new JdkClient(
-                new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyUrl.getHost(), wiremockProxy.getPort())));
+        httpClientWithProxy = JdkClient.builder()
+                .url(proxyUrl.getHost())
+                .port(wiremockProxy.getPort())
+                .build();
 
         SINGLE_REQUEST_HEADER = new HashMap<>();
         SINGLE_REQUEST_HEADER.put("header1", "value1");
@@ -592,6 +597,43 @@ public class JdkClientTest {
                 () -> httpClient.post("not/a/valid/url", Collections.emptyMap(), "test"),
                 "Expected ClientException but none thrown");
         assertThat(thrown.getMessage(), is(equalTo("Malformed URL path received: not/a/valid/url")));
+    }
+
+    @Test
+    void unsupportedSchemeResultsInException() {
+        ClientException thrown = assertThrows(
+                ClientException.class,
+                () -> httpClient.get("ftp://localhost/test", Collections.emptyMap()),
+                "Expected ClientException but none thrown");
+        assertThat(thrown.getMessage(), is(equalTo("Malformed URL path received: ftp://localhost/test")));
+    }
+
+    @Test
+    void pathContainingIllegalCharactersResultsInException() {
+        ClientException thrown = assertThrows(
+                ClientException.class,
+                () -> httpClient.get("http://localhost/a path", Collections.emptyMap()),
+                "Expected ClientException but none thrown");
+        assertThat(thrown.getMessage(), is(equalTo("Malformed URL path received: http://localhost/a path")));
+    }
+
+    @Test
+    void transportOwnedRequestHeadersAreNotForwarded() throws Exception {
+
+        stubFor(put(BASE_PATH).willReturn(aResponse().withBody(SAMPLE_RESPONSE_BODY)));
+
+        Map<String, String> requestHeaders = new HashMap<>();
+        requestHeaders.put("Content-Length", "999");
+        requestHeaders.put("header1", "value1");
+
+        HttpResponse<String> response =
+                httpClient.put(API_URL, requestHeaders, new ByteArrayInputStream("sample post body".getBytes()));
+
+        verify(putRequestedFor(urlEqualTo(BASE_PATH))
+                .withRequestBody(WireMock.equalTo("sample post body"))
+                .withHeader("Content-Length", WireMock.equalTo("16"))
+                .withHeader("header1", WireMock.equalTo("value1")));
+        assertThat(response.getStatusCode(), is(equalTo(200)));
     }
 
     @Test

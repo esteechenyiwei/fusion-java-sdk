@@ -13,6 +13,10 @@ For more information, please visit [fusion.jpmorgan.com](https://fusion.jpmorgan
 
 ## Usage
 
+### Requirements
+
+Java 17 or later. Releases prior to the Java 17 migration require Java 8 or later.
+
 ### Acquiring
 
 The Fusion SDK is published to Maven Central and can be retrieved using standard dependency resolution tools:
