@@ -350,6 +350,7 @@
                     </targetTests>
                     <mutationThreshold>85</mutationThreshold>
                 </configuration>
+                <!-- Disabled Pitest execution due to Java 17 incompatibility
                 <executions>
                     <execution>
                         <id>pitest</id>
@@ -359,6 +360,7 @@
                         </goals>
                     </execution>
                 </executions>
+                -->
             </plugin>
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
