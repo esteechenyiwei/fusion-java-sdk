@@ -221,7 +221,7 @@ public class Fusion {
         headers.put("x-jpmc-paginate", "true");
         if (defaultPageSize > 0) {
             log.debug("Using page size: {}", defaultPageSize);
-            headers.put("x-jpmc-page-size", String.valueOf(defaultPageSize));
+            headers.put("x-jpmc-page-size", Integer.toString(defaultPageSize));
         }
 
         Gson gson = new Gson();
