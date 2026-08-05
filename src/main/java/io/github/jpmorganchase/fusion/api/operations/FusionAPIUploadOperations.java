@@ -172,7 +172,7 @@ public class FusionAPIUploadOperations implements APIUploadOperations {
         Map<String, String> requestHeaders = ur.getHeaders();
         requestHeaders.put("accept", "*/*");
         requestHeaders.put("Content-Type", "application/octet-stream");
-        requestHeaders.put("Content-Length", String.valueOf(upload.getSize()));
+        requestHeaders.put("Content-Length", Long.toString(upload.getSize()));
         setSecurityHeaders(ur, requestHeaders);
         setDistributionHeaders(ur, upload, requestHeaders);
 

@@ -11,6 +11,11 @@ Fusion by J.P. Morgan is a cloud-native data platform for institutional investor
 
 For more information, please visit [fusion.jpmorgan.com](https://fusion.jpmorgan.com/)
 
+## Requirements
+
+- **Java 17 or higher** - This SDK requires Java 17 or higher to run and build
+- Maven 3.6+ or equivalent build tool
+
 ## Usage
 
 ### Acquiring

@@ -5,8 +5,7 @@ import io.github.jpmorganchase.fusion.api.operations.APIDownloadOperations;
 import io.github.jpmorganchase.fusion.api.operations.APIUploadOperations;
 import io.github.jpmorganchase.fusion.http.HttpResponse;
 import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.util.Map;
 
@@ -63,13 +62,13 @@ public interface APIManager extends APIDownloadOperations, APIUploadOperations {
 
     static String encodeUrl(String rawUrl) {
         try {
-            URL url = new URL(rawUrl);
+            URI uri = URI.create(rawUrl);
 
-            String protocol = url.getProtocol();
-            String host = url.getHost();
-            int port = url.getPort();
-            String path = url.getPath();
-            String query = url.getQuery();
+            String protocol = uri.getScheme();
+            String host = uri.getHost();
+            int port = uri.getPort();
+            String path = uri.getPath();
+            String query = uri.getQuery();
 
             boolean endsWithSlash = path.endsWith("/");
 
@@ -110,7 +109,7 @@ public interface APIManager extends APIDownloadOperations, APIUploadOperations {
             }
 
             return finalUrl.toString();
-        } catch (MalformedURLException | UnsupportedEncodingException e) {
+        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }
     }
