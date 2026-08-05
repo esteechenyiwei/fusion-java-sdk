@@ -170,7 +170,7 @@ A step is only "done" when that command exits 0. Failure = fix or revert the ste
 | 1.1 | `pom.xml`: replace `maven.compiler.source/target=1.8` with `<maven.compiler.release>17</maven.compiler.release>`. | `release` (unlike `source`/`target`) *validates against the JDK 17 API signature set*, eliminating the "compiles on 17, `NoSuchMethodError` at runtime" class of bug and the bootstrap-classpath warning. This is the single change that makes the artifact a Java 17 artifact. |
 | 1.2 | CI: `java-version: 8 → 17` in `build.yml` **and** `release.yml`. | The release pipeline must build the exact bytecode we tested. Leaving `release.yml` on 8 would publish a broken/unbuildable release. |
 | 1.3 | Remove Java-8 pins: `logback-classic 1.3.12 → 1.5.x`, `spotless 2.30.0 → 2.4x`, drop the explanatory "Java 8" comments. | These pins exist *only* because of Java 8. Unpinning restores the security-patch stream for the logging stack and the formatter, and removes misleading comments for future maintainers. |
-| 1.4 | Test-stack refresh: `wiremock-jre8` → `wiremock-standalone`/`wiremock 3.x`, JUnit 5.9.2 → 5.11+, Mockito 4.x → 5.x, plus a `pitest`/`pitest-junit5-plugin` bump compatible with the new JUnit line. | `wiremock-jre8` is a dead artifact name; Mockito 5 is the first line that supports JDK 17 byte-buddy properly (inline mock maker by default). Without these, tests will pass today and break on the next JDK bump. **Known trap:** PIT + JUnit 5.12 needs `pitest-junit5-plugin ≥ 1.2.x` or mutation coverage silently drops to 0 and fails the 85 % gate. |
+| 1.4 | Test-stack refresh: `com.github.tomakehurst:wiremock-jre8 2.35` → `org.wiremock:wiremock 3.13`, JUnit 5.9.2 → 5.14, Mockito 4.x → 5.20, `pitest` 1.9.8 → 1.20 with `pitest-junit5-plugin` 1.2.3. **Pact 4.1.41 deliberately left as-is** — 4.4+ defaults to the V4 pact spec and requires rewriting every `@Pact` method signature, which would also change the published `-pact` classifier artifact's contract files. That is consumer-visible and belongs in its own change, not in a JDK migration. | `wiremock-jre8` is a dead artifact name; Mockito 5 is the first line that supports JDK 17 byte-buddy properly (inline mock maker by default). Without these, tests will pass today and break on the next JDK bump. **Known trap:** PIT + JUnit 5.12 needs `pitest-junit5-plugin ≥ 1.2.x` or mutation coverage silently drops to 0 and fails the 85 % gate. |
 | 1.5 | `README.md`: state the Java 17 requirement. | Consumers must know before they upgrade; this is the cheapest form of release communication. |
 | **Gate** | `mvn -B clean verify` green after **each** of the above. | |
 
@@ -280,9 +280,10 @@ Each step below is one commit on `practice-3`; the table is filled in as the wor
 | Step | Commit subject | `mvn verify` |
 |---|---|---|
 | 0.2 | *(baseline, no commit)* | green — 352 tests, 86 % mutation |
-| 1.1 | `phase1: target Java 17 via maven.compiler.release` | |
-| 1.2 | `phase1: build and release CI on Temurin 17` | |
-| 1.3 | `phase1: drop Java-8 dependency pins` | |
-| 1.4 | `phase1: modernise test stack` | |
+| 1.1 | `phase1: target Java 17 via maven.compiler.release` | green — 352 tests, 85 % mutation, class-file major 61 |
+| 1.2 | `phase1: build and release CI on Temurin 17` | green |
+| 1.3 | `phase1: drop Java-8 pins on logback and spotless` | green — 86 % mutation |
+| 1.4 | `phase1: modernise test stack (junit 5.14, mockito 5, wiremock 3, pitest 1.20)` | green — 85 % mutation; needed `preserveUserAgentProxyHeader(true)` on the proxy stub (WireMock 3 forwards via Apache HC5, which overwrites `User-Agent`) |
+| 1.5 | `phase1: document Java 17 runtime requirement` | green |
 | 2.x | `phase2: ...` | |
 | 3.x | `phase3: ...` | |
