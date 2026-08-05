@@ -41,20 +41,16 @@ public class OAuthTokenRetriever implements TokenRetriever {
     @Override
     public BearerToken retrieve(Credentials credentials) {
 
-        switch (credentials.getCredentialType()) {
-            case SECRET:
-                return retrieveWithSecretCredentials((OAuthSecretBasedCredentials) credentials);
-            case PASSWORD:
-                return retrieveWithPasswordCredentials((OAuthPasswordBasedCredentials) credentials);
-            case DATASET:
-                return retrieveWithDatasetCredentials((OAuthDatasetCredentials) credentials);
-            default:
-                throw new OAuthException(
-                        String.format(
-                                "Unable to retrieve token, unsupported credential type %s",
-                                credentials.getClass().getName()),
-                        "Unable to initiate request");
-        }
+        return switch (credentials.getCredentialType()) {
+            case SECRET -> retrieveWithSecretCredentials((OAuthSecretBasedCredentials) credentials);
+            case PASSWORD -> retrieveWithPasswordCredentials((OAuthPasswordBasedCredentials) credentials);
+            case DATASET -> retrieveWithDatasetCredentials((OAuthDatasetCredentials) credentials);
+            default -> throw new OAuthException(
+                    String.format(
+                            "Unable to retrieve token, unsupported credential type %s",
+                            credentials.getClass().getName()),
+                    "Unable to initiate request");
+        };
     }
 
     public BearerToken retrieveWithPasswordCredentials(OAuthPasswordBasedCredentials credentials) {
@@ -68,7 +64,7 @@ public class OAuthTokenRetriever implements TokenRetriever {
                 credentials.getUsername(),
                 credentials.getPassword());
 
-        return retrieve(credentials.getAuthServerUrl(), requestHeaders, new ArrayList<>(), body);
+        return retrieve(credentials.getAuthServerUrl(), requestHeaders, List.of(), body);
     }
 
     public BearerToken retrieveWithSecretCredentials(OAuthSecretBasedCredentials credentials) {
@@ -80,7 +76,7 @@ public class OAuthTokenRetriever implements TokenRetriever {
 
         String body = String.format("grant_type=client_credentials&aud=%1s", credentials.getResource());
 
-        return retrieve(credentials.getAuthServerUrl(), requestHeaders, new ArrayList<>(), body);
+        return retrieve(credentials.getAuthServerUrl(), requestHeaders, List.of(), body);
     }
 
     public BearerToken retrieveWithDatasetCredentials(OAuthDatasetCredentials credentials) {
@@ -90,7 +86,7 @@ public class OAuthTokenRetriever implements TokenRetriever {
         return retrieve(
                 credentials.getAuthServerUrl(),
                 requestHeaders,
-                Arrays.asList(credentials.getCatalog(), credentials.getDataset()),
+                List.of(credentials.getCatalog(), credentials.getDataset()),
                 null);
     }
 
@@ -118,7 +114,7 @@ public class OAuthTokenRetriever implements TokenRetriever {
     private HttpResponse<String> executeRequest(
             String authServerUrl, Map<String, String> requestHeaders, List<String> pathParams, String body) {
 
-        if (pathParams.size() > 0) {
+        if (!pathParams.isEmpty()) {
             return httpClient.get(fusionAuthServerUrlForDataset(authServerUrl, pathParams), requestHeaders);
         }
         return httpClient.post(authServerUrl, requestHeaders, body);
