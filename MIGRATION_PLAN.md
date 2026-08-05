@@ -181,24 +181,37 @@ A step is only "done" when that command exits 0. Failure = fix or revert the ste
 | Step | Action | Why it matters |
 |---|---|---|
 | 2.1 | Arrow-form **switch expressions** in `APICallException.getMessage()`, `DigestProviderService.getDigestProvider()`, `OAuthTokenRetriever.retrieve()`. | Removes fall-through bugs and the mutable `errorMsg` accumulator; the compiler now enforces that every branch yields a value. `APICallException.getMessage()` is *consumer-visible* text — messages are preserved verbatim, only the control flow changes. |
-| 2.2 | `new URL(String)` → `URI.create(...).toURL()` in `JdkClient`/`APIManager`; `URLEncoder.encode(s, StandardCharsets.UTF_8)` instead of the `String`-charset overload (which throws a checked `UnsupportedEncodingException` nobody can handle). | `new URL(String)` is deprecated for removal from JDK 20 — fixing it now means the next LTS hop (21/25) is a no-op. Removing the impossible checked exception simplifies `encodeUrl`'s signature internals without changing its public contract. |
+| 2.2 | `new URL(String)` → `URI` in `JdkClient` (landed in Phase 3); `URLEncoder.encode(s, StandardCharsets.UTF_8)` instead of the `String`-charset overload (which throws a checked `UnsupportedEncodingException` nobody can handle). **`APIManager.encodeUrl` deliberately keeps `new URL(...)`** — see note below. | `new URL(String)` is deprecated for removal from JDK 20 — fixing it now means the next LTS hop (21/25) is a no-op. Removing the impossible checked exception simplifies `encodeUrl`'s signature internals without changing its public contract. |
 | 2.3 | Immutable collection factories and small idioms: `List.of`/`Map.of`/`Collections.emptyList()` where a mutable copy isn't required, `isEmpty()` instead of `size() > 0`, diamond/`var` where it genuinely improves readability. | Fewer defensive copies and accidental mutation of shared state. **Caution:** `List.of` rejects `null` elements and Gson-populated maps can carry nulls — applied only where a null is impossible. |
 | 2.4 | Text blocks in test fixtures where a multi-line JSON literal exists. | Test readability only; zero production impact. |
 | **Gate** | `mvn -B clean verify` green after each step; `spotless:apply` before committing. | |
 
 **Business value:** none of this changes behaviour — it lowers the cost of every *future* change to the SDK, which is what keeps Fusion feature delivery fast for consumers.
 
+> **Deliberate exception — `APIManager.encodeUrl`.** That method exists to percent-encode raw path segments that may legitimately contain spaces or Unicode. `URI` rejects exactly those characters at parse time, so swapping `new URL(rawUrl)` for `URI.create(rawUrl)` there would reject the inputs the method was written to handle. It stays on `URL` (with an explanatory comment) until the *callers* are changed to hand it pre-validated input; `JdkClient` moved to `URI` safely because its input is already encoded by that method.
+
 ### Phase 3 — HTTP transport rewrite (high effort, high impact)
 
 | Step | Action | Why it matters |
 |---|---|---|
 | 3.1 | Rewrite `JdkClient` on `java.net.http.HttpClient`, keeping the `Client` interface, the `JdkClient.builder()` shape (`.url()/.port()/.noProxy()`), and `HttpResponse<T>` **unchanged**. | The `Client` interface is the seam every other component talks to; keeping it means `FusionAPIManager`, upload/download operations and `OAuthTokenRetriever` are untouched — the blast radius stays inside one package. |
-| 3.2 | Map behaviour 1:1: `BodyHandlers.ofString` for text, `BodyHandlers.ofInputStream` for streaming downloads, `BodyPublishers.ofInputStream` for streamed PUTs, `ProxySelector` for the proxy builder, and the `{"error": ...}` default body for empty error responses. | Behavioural parity is the whole game: consumers must not see different exceptions, status handling or error text. The 35 existing `JdkClientTest` cases (WireMock-backed) are the contract. |
+| 3.2 | Map behaviour 1:1: `BodyHandlers.ofInputStream` everywhere (text bodies read through the same line-joining reader as before), `BodyPublishers.ofByteArray` for stream PUTs, `ProxySelector` for the proxy builder, `HTTP_1_1` + `Redirect.NORMAL` to match `HttpURLConnection` defaults. | Behavioural parity is the whole game: consumers must not see different exceptions, status handling or error text. The 35 existing `JdkClientTest` cases (WireMock-backed) are the contract. See the parity notes below for the three places where exact parity was impossible or undesirable. |
 | 3.3 | Delete `HttpConnectionInputStream` (+ its test) — `HttpClient`'s `InputStream` body already owns connection release. | Dead code after 3.2; leaving it invites a future maintainer to wire a raw `HttpURLConnection` back in. Note: this is an SDK-internal, package-private class — **not** part of the public API. |
 | 3.4 | Re-verify multipart upload/download and PACT/WireMock suites specifically. | These are the paths where connection reuse and streaming semantics differ most between the two clients, and where Fusion's largest client workloads live. |
 | **Gate** | `mvn -B clean verify` green; PIT mutation score still ≥ 85 %. | |
 
-**Business value:** HTTP/2 + genuine connection pooling on the parallel part-transfer paths is the throughput win consumers will actually feel on large distributions; it also gives us per-request timeouts, which the old client never had.
+**Business value:** a single pooled `HttpClient` per SDK client on the parallel part-transfer paths is the throughput win consumers will actually feel on large distributions; it also opens the door to per-request timeouts and HTTP/2, which the old client never had.
+
+#### Phase 3 transport parity notes (consumer-relevant)
+
+| Area | Old (`HttpURLConnection`) | New (`java.net.http.HttpClient`) | Rationale |
+|---|---|---|---|
+| **Protocol / redirects** | HTTP/1.1, follows redirects by default | Pinned to `HTTP_1_1` and `Redirect.NORMAL` | Parity chosen over novelty. HTTP/2 is a follow-up to be enabled deliberately and load-tested, not smuggled into a JDK migration. |
+| **Request framing** | Body buffered in memory, sent with `Content-Length` | Buffered to `byte[]`, sent with `Content-Length` | `BodyPublishers.ofInputStream` would have switched large part uploads to chunked encoding — a wire-visible change against the Fusion API. Memory profile is unchanged from today. Streaming with a known length is a follow-up. |
+| **Transport-owned headers** | `Content-Length` etc. set by callers were silently replaced | Caller-supplied `connection`/`content-length`/`expect`/`host`/`upgrade` are dropped before the request is built | `HttpClient` *throws* on these by default. `FusionAPIUploadOperations` sets `Content-Length` on single-part uploads, so without this filter every single-part upload would fail. Net wire result is identical, because the transport computes the real value. |
+| **Empty error bodies** | `getErrorStream() == null` → synthetic `{"error": "Unable to perform requested action"}` | Empty body → `""` | The synthetic body existed to paper over a `HttpURLConnection` quirk that `HttpClient` does not have. An error response *with* an empty body already produced `""` before (asserted by the 404/500 tests), so the observable contract is unchanged; only the unreachable null-stream path is gone. |
+| **Invalid URLs** | `new URL("http://h/a b")` accepted, then produced a malformed request line | Rejected up front with `ClientException("Malformed URL path received: …")` | Fails fast with the same exception type and message format instead of emitting a request the server will 400. |
+| **Interruption** | n/a (blocking IO, no `InterruptedException`) | Interrupt flag restored, then `ClientException("Interrupted while performing HTTP operation")` | The multipart paths run on a thread pool; swallowing the interrupt would break cancellation. |
 
 ### Phase 4 — Package, publish-readiness and rollout
 
@@ -285,5 +298,7 @@ Each step below is one commit on `practice-3`; the table is filled in as the wor
 | 1.3 | `phase1: drop Java-8 pins on logback and spotless` | green — 86 % mutation |
 | 1.4 | `phase1: modernise test stack (junit 5.14, mockito 5, wiremock 3, pitest 1.20)` | green — 85 % mutation; needed `preserveUserAgentProxyHeader(true)` on the proxy stub (WireMock 3 forwards via Apache HC5, which overwrites `User-Agent`) |
 | 1.5 | `phase1: document Java 17 runtime requirement` | green |
-| 2.x | `phase2: ...` | |
-| 3.x | `phase3: ...` | |
+| 2.1, 2.3 | `phase2: switch expressions and immutable list factories` | green — 352 tests |
+| 2.2 | `phase2: charset-typed URLEncoder, drop impossible checked exception` | green — 352 tests |
+| 2.x | `phase2: pattern-matching instanceof; de-flake parallel part upload stub` | green — 352 tests, 85 % mutation |
+| 3.1–3.4 | `phase3: rewrite JdkClient on java.net.http.HttpClient` | green — 353 tests (2 obsolete deleted, 3 added), 85 % mutation, PACT + WireMock + IT green |
