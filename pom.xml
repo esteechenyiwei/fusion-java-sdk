@@ -365,9 +365,10 @@
                 <artifactId>spotless-maven-plugin</artifactId>
                 <configuration>
                     <java>
-                        <googleJavaFormat>
-                            <version>1.19.2</version>
-                        </googleJavaFormat>
+                        <palantirJavaFormat>
+                            <!-- Optionally specify a version -->
+                            <!--<version>2.20.0</version>-->
+                        </palantirJavaFormat>
                     </java>
                 </configuration>
                 <executions>
