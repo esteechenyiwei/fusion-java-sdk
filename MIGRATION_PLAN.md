@@ -133,6 +133,19 @@ Purely internal; **no signature changes**.
 
 **Risk: highest in the plan** — this is the one step where behaviour can drift. Mitigations: no test file is edited; contract (Pact) and WireMock suites must be byte-identical green; the change is isolated to one class so it can be reverted independently of Phases 1–2.
 
+**As built — deviations from the step plan above (all verified against the unmodified test suites):**
+
+| Planned | As built | Why |
+|---|---|---|
+| Replicate the `DEFAULT_ERROR` fallback | Constant removed | It only existed because `HttpURLConnection.getErrorStream()` can be `null`. `BodyHandlers.ofString` always yields a body (empty string at worst), so the branch is unreachable — and it was never covered by a test. |
+| Header map unchanged | The `null` key that carried the HTTP status line is gone | `java.net.http.HttpHeaders.map()` has no null key. Consumers iterating `HttpResponse.headers` see one fewer entry and can no longer NPE on a null key. Only observable behaviour change in the whole migration. |
+| `BodyPublishers.ofInputStream` for stream `PUT` | Body drained to a byte array first | `ofInputStream` has unknown length, so requests go out chunked with no `Content-Length` — which the Fusion upload contract requires (caught by the Pact suite). Parts are already fully materialised for checksumming, so memory profile is unchanged. |
+| Pin `HTTP_1_1` | Left at the JDK default (HTTP/2 with negotiation) and `Redirect.NORMAL` | Negotiation falls back to HTTP/1.1 automatically; pinning would forfeit the main performance reason for the rewrite. |
+| — | `URI` scheme/host validated explicitly | `new URI(String)` accepts relative paths that `new URL(String)` rejected; the explicit check preserves the `Malformed URL path received: %s` contract. |
+| — | `String` response bodies still have line terminators stripped | The old `BufferedReader` loop appended lines without separators. Preserved so response strings stay byte-identical for consumers. |
+
+Timeouts were **not** added: today's default is "wait forever", and introducing one is a behaviour change consumers must opt into. Tracked as a follow-up (§9).
+
 ---
 
 ## 6. Phase 4 — Release engineering & validation
@@ -184,7 +197,8 @@ Purely internal; **no signature changes**.
 5. **Virtual threads** for the up/download executor pools (requires the next hop to **Java 21 LTS**) — this SDK's fan-out I/O is close to the ideal workload.
 6. **Cross-platform CI matrix** (linux/macos/windows × JDK 17/21) to de-risk the AWS-CRT native dependency.
 7. **Replace the deprecated `finalize`-style/legacy patterns** and adopt `Objects.requireNonNull` consistently.
-8. **Plan the Java 21 hop now** — 17 is already mid-life; treat this as step one of a rolling-LTS policy, not a one-off.
+8. **Configurable connect/request timeouts** on `JdkClient` — deliberately out of scope here to keep behaviour identical (see §5 as-built), but the JDK client now makes it a two-line change.
+9. **Plan the Java 21 hop now** — 17 is already mid-life; treat this as step one of a rolling-LTS policy, not a one-off.
 
 ---
 
@@ -207,7 +221,7 @@ Purely internal; **no signature changes**.
 > - **Action required:** from `vX.Y.0`, fusion-sdk requires **Java 17 or later** at runtime. On Java 8/11 you will get `UnsupportedClassVersionError`.
 > - **No code changes required:** the public API is unchanged — upgrade the dependency version and your JDK, nothing else.
 > - **Staying on Java 8?** Pin to `0.0.x`, which remains on Maven Central and will receive security-only fixes until `<date>`.
-> - **Under the hood:** HTTP transport now uses the modern JDK HTTP client (adds request timeouts; no API change).
+> - **Under the hood:** HTTP transport now uses the modern JDK HTTP client. One observable difference: `HttpResponse.headers` no longer contains the legacy `null`-keyed entry that held the status line. Timeouts are unchanged (still unbounded).
 > - **Support:** `<team channel>`, and a deprecation date for the Java 8 line.
 
 Send this to consumers **at RC time, not at GA** — they need lead time to schedule their own JVM upgrade.

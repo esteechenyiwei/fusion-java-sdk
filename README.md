@@ -13,6 +13,12 @@ For more information, please visit [fusion.jpmorgan.com](https://fusion.jpmorgan
 
 ## Usage
 
+### Requirements
+
+The SDK requires **Java 17 or later** at both compile time and runtime. Releases up to and including
+`0.0.18` target Java 8; consumers still on Java 8 or Java 11 should remain on those versions until they
+are able to upgrade their runtime.
+
 ### Acquiring
 
 The Fusion SDK is published to Maven Central and can be retrieved using standard dependency resolution tools:
