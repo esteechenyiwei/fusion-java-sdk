@@ -4,8 +4,8 @@ import static io.github.jpmorganchase.fusion.model.VarArgsHelper.copyMap;
 
 import com.google.gson.annotations.Expose;
 import io.github.jpmorganchase.fusion.Fusion;
-import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.EqualsAndHashCode;
@@ -76,7 +76,7 @@ public abstract class CatalogResource {
     public Set<String> getRegisteredAttributes() {
         Set<String> registered = new LinkedHashSet<>();
         registered.addAll(VarArgsHelper.getFieldNames(CatalogResource.class));
-        registered.addAll(Arrays.asList("@id", "@context", "@base"));
+        registered.addAll(List.of("@id", "@context", "@base"));
         return registered;
     }
 }

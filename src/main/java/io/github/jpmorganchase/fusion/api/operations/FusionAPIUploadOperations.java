@@ -266,9 +266,18 @@ public class FusionAPIUploadOperations implements APIUploadOperations {
             throw handleExceptionThrownWhenAttemptingToUploadParts(e);
         } finally {
             executor.shutdown();
+            awaitCompletionOfInFlightParts(executor);
         }
 
         return mtx.transferred(chunkSize, totalBytes, partCnt);
+    }
+
+    private void awaitCompletionOfInFlightParts(ExecutorService executor) {
+        try {
+            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     protected UploadedPartContext callAPIToUploadPart(
@@ -280,7 +289,7 @@ public class FusionAPIUploadOperations implements APIUploadOperations {
         DigestDescriptor digestOfPart = digestProducer.execute(
                 new ByteArrayInputStream(ByteBuffer.wrap(part, 0, read).array()));
 
-        Map<String, String> requestHeaders = ur.getHeaders();
+        Map<String, String> requestHeaders = new HashMap<>(ur.getHeaders());
         setSecurityHeaders(ur, requestHeaders);
         requestHeaders.put("accept", "*/*");
         requestHeaders.put("Content-Type", "application/octet-stream");

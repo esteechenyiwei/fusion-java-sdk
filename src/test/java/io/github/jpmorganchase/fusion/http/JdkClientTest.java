@@ -35,7 +35,10 @@ public class JdkClientTest {
 
     @RegisterExtension
     static WireMockExtension wiremockProxy = WireMockExtension.newInstance()
-            .options(wireMockConfig().dynamicPort().notifier(new Slf4jNotifier(true)))
+            .options(wireMockConfig()
+                    .dynamicPort()
+                    .preserveUserAgentProxyHeader(true)
+                    .notifier(new Slf4jNotifier(true)))
             .build();
 
     private static final Client httpClient = JdkClient.builder().noProxy().build();

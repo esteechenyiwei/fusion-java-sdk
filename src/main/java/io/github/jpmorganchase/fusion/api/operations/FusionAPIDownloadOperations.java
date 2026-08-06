@@ -200,11 +200,7 @@ public class FusionAPIDownloadOperations implements APIDownloadOperations {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (InputStream input = gpr.getContent()) {
 
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = input.read(buffer)) != -1) {
-                baos.write(buffer, 0, bytesRead);
-            }
+            input.transferTo(baos);
 
             synchronized (lock) {
                 raf.seek(gpr.getHead().getContentRange().getStart());
@@ -219,11 +215,7 @@ public class FusionAPIDownloadOperations implements APIDownloadOperations {
     public void performSinglePartDownloadToFile(DownloadRequest dr, Head head) throws APICallException {
         try (InputStream input = performSinglePartDownloadToStream(dr, head)) {
             try (FileOutputStream fileOutput = new FileOutputStream(dr.getFilePath())) {
-                byte[] buf = new byte[8192];
-                int len;
-                while ((len = input.read(buf)) != -1) {
-                    fileOutput.write(buf, 0, len);
-                }
+                input.transferTo(fileOutput);
             }
         } catch (IOException e) {
             throw new FileDownloadException(WRITE_TO_FILE_EXCEPTION_MSG, e);
