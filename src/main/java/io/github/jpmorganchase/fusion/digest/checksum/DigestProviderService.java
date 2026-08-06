@@ -7,20 +7,13 @@ public class DigestProviderService {
 
     public DigestProvider getDigestProvider(String digestAlgo) throws IOException {
         try {
-            switch (digestAlgo) {
-                case "CRC32":
-                    return new CRC32Provider();
-                case "CRC32C":
-                    return new CRC32CProvider();
-                case "CRC64NVME":
-                    return new CRC64NVMEProvider();
-                case "SHA-1":
-                case "SHA-256":
-                case "MD5":
-                    return new SHAProvider(digestAlgo);
-                default:
-                    throw new IOException("Invalid digest algorithm provided");
-            }
+            return switch (digestAlgo) {
+                case "CRC32" -> new CRC32Provider();
+                case "CRC32C" -> new CRC32CProvider();
+                case "CRC64NVME" -> new CRC64NVMEProvider();
+                case "SHA-1", "SHA-256", "MD5" -> new SHAProvider(digestAlgo);
+                default -> throw new IOException("Invalid digest algorithm provided");
+            };
         } catch (NoSuchAlgorithmException e) {
             throw new IOException("Invalid digest algorithm provided", e);
         }

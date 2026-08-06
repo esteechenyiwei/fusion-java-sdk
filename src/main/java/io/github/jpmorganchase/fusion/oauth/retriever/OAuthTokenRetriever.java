@@ -41,20 +41,16 @@ public class OAuthTokenRetriever implements TokenRetriever {
     @Override
     public BearerToken retrieve(Credentials credentials) {
 
-        switch (credentials.getCredentialType()) {
-            case SECRET:
-                return retrieveWithSecretCredentials((OAuthSecretBasedCredentials) credentials);
-            case PASSWORD:
-                return retrieveWithPasswordCredentials((OAuthPasswordBasedCredentials) credentials);
-            case DATASET:
-                return retrieveWithDatasetCredentials((OAuthDatasetCredentials) credentials);
-            default:
-                throw new OAuthException(
-                        String.format(
-                                "Unable to retrieve token, unsupported credential type %s",
-                                credentials.getClass().getName()),
-                        "Unable to initiate request");
-        }
+        return switch (credentials.getCredentialType()) {
+            case SECRET -> retrieveWithSecretCredentials((OAuthSecretBasedCredentials) credentials);
+            case PASSWORD -> retrieveWithPasswordCredentials((OAuthPasswordBasedCredentials) credentials);
+            case DATASET -> retrieveWithDatasetCredentials((OAuthDatasetCredentials) credentials);
+            default -> throw new OAuthException(
+                    String.format(
+                            "Unable to retrieve token, unsupported credential type %s",
+                            credentials.getClass().getName()),
+                    "Unable to initiate request");
+        };
     }
 
     public BearerToken retrieveWithPasswordCredentials(OAuthPasswordBasedCredentials credentials) {
