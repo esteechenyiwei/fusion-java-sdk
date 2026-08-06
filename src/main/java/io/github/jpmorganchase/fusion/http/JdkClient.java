@@ -1,36 +1,73 @@
 package io.github.jpmorganchase.fusion.http;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.invoke.MethodHandles;
-import java.net.*;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse.BodyHandler;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
-import lombok.Builder;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@Builder
 public class JdkClient implements Client {
 
     private static final Logger logger =
             LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-    private static final String DEFAULT_ERROR = "{\"error\": \"Unable to perform requested action\"}";
+
     public static final String METHOD_GET = "GET";
     public static final String METHOD_POST = "POST";
     public static final String METHOD_PUT = "PUT";
     public static final String METHOD_DELETE = "DELETE";
-    private final Proxy proxy;
+
+    /**
+     * Headers that are computed and owned by the underlying HTTP client. Callers may still supply them,
+     * in which case the value provided by the client is authoritative.
+     */
+    private static final Set<String> CLIENT_MANAGED_HEADERS =
+            Set.of("connection", "content-length", "expect", "host", "upgrade");
+
+    private final java.net.http.HttpClient httpClient;
+
+    JdkClient(Proxy proxy) {
+        this.httpClient = newHttpClient(proxy);
+    }
+
+    private static java.net.http.HttpClient newHttpClient(Proxy proxy) {
+        java.net.http.HttpClient.Builder builder =
+                java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NORMAL);
+
+        if (Objects.nonNull(proxy) && proxy.type() == Proxy.Type.HTTP && proxy.address() instanceof InetSocketAddress) {
+            builder.proxy(ProxySelector.of((InetSocketAddress) proxy.address()));
+        }
+
+        return builder.build();
+    }
 
     @Override
     public HttpResponse<String> get(String path, Map<String, String> headers) {
-        return executeMethod(METHOD_GET, path, headers);
+        return executeMethod(METHOD_GET, path, headers, null);
     }
 
     @Override
     public HttpResponse<InputStream> getInputStream(String path, Map<String, String> headers) {
-        return executeMethod(METHOD_GET, path, headers, null, false, HttpConnectionInputStream::new);
+        return executeMethod(
+                METHOD_GET,
+                path,
+                headers,
+                HttpRequest.BodyPublishers.noBody(),
+                BodyHandlers.ofInputStream(),
+                Function.identity());
     }
 
     @Override
@@ -48,7 +85,13 @@ public class JdkClient implements Client {
         if (body == null) {
             throw new ClientException("No request body specified for PUT operation");
         }
-        return executeMethod(METHOD_PUT, path, headers, body, true, this::getResponseBody);
+        return executeMethod(
+                METHOD_PUT,
+                path,
+                headers,
+                HttpRequest.BodyPublishers.ofByteArray(drain(body)),
+                BodyHandlers.ofString(StandardCharsets.UTF_8),
+                JdkClient::normaliseBody);
     }
 
     @Override
@@ -56,137 +99,103 @@ public class JdkClient implements Client {
         return executeMethod(METHOD_DELETE, path, headers, body);
     }
 
-    private HttpResponse<String> executeMethod(String method, String path, Map<String, String> headers) {
-        return executeMethod(method, path, headers, null);
-    }
-
     private HttpResponse<String> executeMethod(String method, String path, Map<String, String> headers, String body) {
-        InputStream bodyAsStream =
-                body != null ? new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)) : null;
         logger.debug("Request body: {}", body);
-        return executeMethod(method, path, headers, bodyAsStream, true, this::getResponseBody);
+        HttpRequest.BodyPublisher publisher = body != null
+                ? HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)
+                : HttpRequest.BodyPublishers.noBody();
+
+        return executeMethod(
+                method,
+                path,
+                headers,
+                publisher,
+                BodyHandlers.ofString(StandardCharsets.UTF_8),
+                JdkClient::normaliseBody);
     }
 
-    private <T> HttpResponse<T> executeMethod(
+    private <B, T> HttpResponse<T> executeMethod(
             String method,
             String path,
             Map<String, String> headers,
-            InputStream body,
-            boolean closeConnection,
-            Function<HttpURLConnection, T> resultMapper) {
-        URL url = parseUrl(path);
-        HttpURLConnection connection = openConnection(url);
-        headers.forEach(connection::setRequestProperty);
-        connection.setRequestProperty("User-Agent", UserAgentGenerator.getUserAgentString(this.getClass()));
+            HttpRequest.BodyPublisher bodyPublisher,
+            BodyHandler<B> bodyHandler,
+            Function<B, T> resultMapper) {
 
-        try {
-            int httpCode;
-            logRequest(connection, method);
-            if (body != null) {
-                httpCode = executeRequestWithBody(connection, method, body);
-            } else {
-                httpCode = executeRequest(connection, method);
+        HttpRequest request = buildRequest(method, path, headers, bodyPublisher);
+        logger.debug("Executing {} request for URL: {}", method, request.uri());
+
+        java.net.http.HttpResponse<B> jdkResponse = send(request, bodyHandler);
+
+        HttpResponse<T> response = HttpResponse.<T>builder()
+                .body(resultMapper.apply(jdkResponse.body()))
+                .headers(jdkResponse.headers().map())
+                .statusCode(jdkResponse.statusCode())
+                .build();
+
+        logger.debug("Response: {}", response);
+        return response;
+    }
+
+    private HttpRequest buildRequest(
+            String method, String path, Map<String, String> headers, HttpRequest.BodyPublisher bodyPublisher) {
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder(parseUri(path)).method(method, bodyPublisher);
+
+        headers.forEach((key, value) -> {
+            if (!CLIENT_MANAGED_HEADERS.contains(key.toLowerCase())) {
+                builder.header(key, value);
             }
+        });
+        builder.header("User-Agent", UserAgentGenerator.getUserAgentString(this.getClass()));
 
-            HttpResponse<T> response = HttpResponse.<T>builder()
-                    .body(resultMapper.apply(connection))
-                    .headers(connection.getHeaderFields())
-                    .statusCode(httpCode)
-                    .build();
-            logger.debug("Response: {}", response);
-            return response;
-        } finally {
-            if (closeConnection) {
-                connection.disconnect();
-            }
-        }
+        return builder.build();
     }
 
-    private URL parseUrl(String path) {
+    private <B> java.net.http.HttpResponse<B> send(HttpRequest request, BodyHandler<B> bodyHandler) {
         try {
-            return new URL(path);
-        } catch (MalformedURLException e) {
-            throw new ClientException(String.format("Malformed URL path received: %s", path), e);
-        }
-    }
-
-    private HttpURLConnection openConnection(URL url) {
-        try {
-            return (HttpURLConnection) url.openConnection(proxy);
-        } catch (IOException e) {
-            throw new ClientException("Error establishing HTTP connection", e);
-        }
-    }
-
-    private String getResponseBody(HttpURLConnection connection) {
-        BufferedReader reader =
-                new BufferedReader(new InputStreamReader(getResponseStream(connection), StandardCharsets.UTF_8));
-        StringWriter out = new StringWriter(connection.getContentLength() > 0 ? connection.getContentLength() : 2048);
-
-        try {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                out.append(line);
-            }
-            reader.close();
-        } catch (IOException e) {
-            throw new ClientException("Failed to read data from response", e);
-        }
-        return out.toString();
-    }
-
-    private InputStream getResponseStream(HttpURLConnection connection) {
-        try {
-            int httpCode = connection.getResponseCode();
-            if (100 <= httpCode && httpCode <= 399) {
-                return connection.getInputStream();
-            } else {
-                return errorStream(connection);
-            }
-        } catch (IOException e) {
-            throw new ClientException("Failed to get InputStream from response", e);
-        }
-    }
-
-    private InputStream errorStream(final HttpURLConnection connection) {
-        if (null == connection.getErrorStream()) {
-            return new ByteArrayInputStream(DEFAULT_ERROR.getBytes(StandardCharsets.UTF_8));
-        }
-        return connection.getErrorStream();
-    }
-
-    private int executeRequest(HttpURLConnection connection, String httpMethod) {
-        try {
-            connection.setRequestMethod(httpMethod);
-            return connection.getResponseCode();
+            return httpClient.send(request, bodyHandler);
         } catch (IOException e) {
             throw new ClientException("Error performing HTTP operation", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ClientException("Interrupted while performing HTTP operation", e);
         }
     }
 
-    private int executeRequestWithBody(HttpURLConnection connection, String method, InputStream body) {
-        try {
-            connection.setDoOutput(true);
-            connection.setRequestMethod(method);
-            OutputStream os = connection.getOutputStream();
-            byte[] buf = new byte[8192];
-            int length;
-            while ((length = body.read(buf)) != -1) {
-                os.write(buf, 0, length);
-            }
-            body.close();
-            return connection.getResponseCode();
+    /**
+     * Reads the request body up-front so that the request is sent with a known content length rather than
+     * chunked, and releases the caller's stream once consumed.
+     */
+    private static byte[] drain(InputStream body) {
+        try (InputStream source = body) {
+            return source.readAllBytes();
         } catch (IOException e) {
             throw new ClientException("Failed to send request data", e);
         }
     }
 
-    private void logRequest(HttpURLConnection connection, String method) {
-        logger.debug("Executing {} request for URL: {}", method, connection.getURL());
+    private URI parseUri(String path) {
+        try {
+            URI uri = new URI(path);
+            if (!uri.isAbsolute() || Objects.isNull(uri.getHost())) {
+                throw new URISyntaxException(path, "Absolute URL with a host is required");
+            }
+            return uri;
+        } catch (URISyntaxException e) {
+            throw new ClientException(String.format("Malformed URL path received: %s", path), e);
+        }
+    }
+
+    /**
+     * Response bodies are returned as a single line, with line terminators dropped.
+     */
+    private static String normaliseBody(String body) {
+        return Objects.isNull(body) ? "" : body.lines().collect(Collectors.joining());
     }
 
     public static JdkClientBuilder builder() {
-        return new CustomJdkClientBuilder();
+        return new JdkClientBuilder();
     }
 
     public static class JdkClientBuilder {
@@ -209,17 +218,17 @@ public class JdkClient implements Client {
             this.proxy = Proxy.NO_PROXY;
             return this;
         }
-    }
 
-    private static class CustomJdkClientBuilder extends JdkClientBuilder {
-        @Override
+        public JdkClientBuilder proxy(Proxy proxy) {
+            this.proxy = proxy;
+            return this;
+        }
+
         public JdkClient build() {
-
             if (Objects.nonNull(url)) {
                 this.proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(url, port));
             }
-
-            return super.build();
+            return new JdkClient(proxy);
         }
     }
 }
